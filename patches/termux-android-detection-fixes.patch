@@ -1,0 +1,65 @@
+diff --git a/include/vulkan/vk_android_native_buffer.h b/include/vulkan/vk_android_native_buffer.h
+index 21f82ef..9e2654e 100644
+--- a/include/vulkan/vk_android_native_buffer.h
++++ b/include/vulkan/vk_android_native_buffer.h
+@@ -17,7 +17,7 @@
+  * system rather the build target.
+  */
+ 
+-#if defined(__ANDROID__) || defined(ANDROID)
++#if (defined(__ANDROID__) || defined(ANDROID)) && 0 /* PATCH: Termux toolchain lacks AOSP cutils/native_handle.h; use portable buffer_handle_t */
+ 
+ #include <cutils/native_handle.h>
+ #if ANDROID_API_LEVEL < 28
+diff --git a/src/util/detect_os.h b/src/util/detect_os.h
+index 7403724..2f93cce 100644
+--- a/src/util/detect_os.h
++++ b/src/util/detect_os.h
+@@ -25,7 +25,7 @@
+  * also be defined.
+  */
+ #if defined(__ANDROID__)
+-#define DETECT_OS_ANDROID 1
++#define DETECT_OS_ANDROID 0 /* PATCH: Termux clang targets android triple but lacks AOSP userland (liblog, libsync); forcing portable code paths */
+ #endif
+ 
+ #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+diff --git a/src/util/libsync.h b/src/util/libsync.h
+index b22b75a..2edc5b5 100644
+--- a/src/util/libsync.h
++++ b/src/util/libsync.h
+@@ -47,7 +47,7 @@
+ extern "C" {
+ #endif
+ 
+-#if DETECT_OS_ANDROID
++#if DETECT_OS_ANDROID && 0 /* PATCH: Termux userland lacks AOSP libsync; force portable poll() path */
+ /* On Android, rely on the system's libsync instead of rolling our own
+  * sync_wait() and sync_merge().  This gives us compatibility with pre-4.7
+  * Android kernels.
+diff --git a/src/vulkan/meson.build b/src/vulkan/meson.build
+index 614a33a..99a0bc7 100644
+--- a/src/vulkan/meson.build
++++ b/src/vulkan/meson.build
+@@ -54,7 +54,7 @@ if with_platform_wayland
+   vulkan_wsi_deps += dep_wayland_client
+   vulkan_wsi_list += '-DVK_USE_PLATFORM_WAYLAND_KHR'
+ endif
+-if system_has_kms_drm and not with_platform_android
++if system_has_kms_drm and not with_platform_android and false # PATCH: keep in sync with wsi/meson.build - direct-display WSI disabled
+   vulkan_wsi_deps += [dep_libdrm, dep_display_info]
+   vulkan_wsi_list += '-DVK_USE_PLATFORM_DISPLAY_KHR'
+ endif
+diff --git a/src/vulkan/wsi/meson.build b/src/vulkan/wsi/meson.build
+index 80925d1..987dfc5 100644
+--- a/src/vulkan/wsi/meson.build
++++ b/src/vulkan/wsi/meson.build
+@@ -38,7 +38,7 @@ if with_platform_macos
+   files_vulkan_wsi += files('wsi_common_metal.c', 'wsi_common_metal_layer.m')
+ endif
+ 
+-if system_has_kms_drm and not with_platform_android
++if system_has_kms_drm and not with_platform_android and false # PATCH: skip direct-display WSI (pthread_cancel unsupported on Bionic/Termux; not needed for Android HAL driver)
+   files_vulkan_wsi += files('wsi_common_display.c')
+ endif
+ 
