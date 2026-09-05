@@ -1,4 +1,4 @@
-# PanVK on Mali-G52 MC2 (Kbase/JM) — Native Termux Build
+# PanVK on Mali-G52 MC2 (Kbase/JM) — Native
 
 Experimental build of Mesa's PanVK (Vulkan driver for Arm Panfrost GPUs)
 targeting a Mali-G52 MC2 (Bifrost, Job Manager frontend, no CSF), compiled
