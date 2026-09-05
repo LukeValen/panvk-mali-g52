@@ -1,0 +1,68 @@
+diff --git a/include/vulkan/vk_android_native_buffer.h b/include/vulkan/vk_android_native_buffer.h
+index 21f82ef..9e2654e 100644
+--- a/include/vulkan/vk_android_native_buffer.h
++++ b/include/vulkan/vk_android_native_buffer.h
+@@ -17,7 +17,7 @@
+  * system rather the build target.
+  */
+ 
+-#if defined(__ANDROID__) || defined(ANDROID)
++#if (defined(__ANDROID__) || defined(ANDROID)) && 0 /* PATCH: Termux toolchain lacks AOSP cutils/native_handle.h; use portable buffer_handle_t */
+ 
+ #include <cutils/native_handle.h>
+ #if ANDROID_API_LEVEL < 28
+diff --git a/src/panfrost/lib/kmod/kbase_kmod.c b/src/panfrost/lib/kmod/kbase_kmod.c
+index 9dfcb25..eb986cc 100644
+--- a/src/panfrost/lib/kmod/kbase_kmod.c
++++ b/src/panfrost/lib/kmod/kbase_kmod.c
+@@ -1178,9 +1178,9 @@ kbase_kmod_dev_create(int fd, uint32_t flags,
+     * panfork's.  Failure is non-fatal for enumeration but breaks tiler
+     * heaps, so warn. */
+    struct kbase_ioctl_mem_jit_init jit_init = {
+-      .va_pages = 1ull << 25,
++      .va_pages = 1ull << 20 /* PATCH: reduced from panfork's 1<<25 (~128GB VA) - testing if kernel 4.19 rejects oversized JIT VA request */,
+       .max_allocations = 255,
+-      .phys_pages = 1ull << 25,
++      .phys_pages = 1ull << 20,
+    };
+    if (ioctl(fd, KBASE_IOCTL_MEM_JIT_INIT, &jit_init)) {
+       mesa_logw("kbase: KBASE_IOCTL_MEM_JIT_INIT failed: %s "
+diff --git a/src/util/detect_os.h b/src/util/detect_os.h
+index 7403724..2f93cce 100644
+--- a/src/util/detect_os.h
++++ b/src/util/detect_os.h
+@@ -25,7 +25,7 @@
+  * also be defined.
+  */
+ #if defined(__ANDROID__)
+-#define DETECT_OS_ANDROID 1
++#define DETECT_OS_ANDROID 0 /* PATCH: Termux clang targets android triple but lacks AOSP userland (liblog, libsync); forcing portable code paths */
+ #endif
+ 
+ #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+diff --git a/src/vulkan/meson.build b/src/vulkan/meson.build
+index 614a33a..99a0bc7 100644
+--- a/src/vulkan/meson.build
++++ b/src/vulkan/meson.build
+@@ -54,7 +54,7 @@ if with_platform_wayland
+   vulkan_wsi_deps += dep_wayland_client
+   vulkan_wsi_list += '-DVK_USE_PLATFORM_WAYLAND_KHR'
+ endif
+-if system_has_kms_drm and not with_platform_android
++if system_has_kms_drm and not with_platform_android and false # PATCH: keep in sync with wsi/meson.build - direct-display WSI disabled
+   vulkan_wsi_deps += [dep_libdrm, dep_display_info]
+   vulkan_wsi_list += '-DVK_USE_PLATFORM_DISPLAY_KHR'
+ endif
+diff --git a/src/vulkan/wsi/meson.build b/src/vulkan/wsi/meson.build
+index 80925d1..987dfc5 100644
+--- a/src/vulkan/wsi/meson.build
++++ b/src/vulkan/wsi/meson.build
+@@ -38,7 +38,7 @@ if with_platform_macos
+   files_vulkan_wsi += files('wsi_common_metal.c', 'wsi_common_metal_layer.m')
+ endif
+ 
+-if system_has_kms_drm and not with_platform_android
++if system_has_kms_drm and not with_platform_android and false # PATCH: skip direct-display WSI (pthread_cancel unsupported on Bionic/Termux; not needed for Android HAL driver)
+   files_vulkan_wsi += files('wsi_common_display.c')
+ endif
+ 
