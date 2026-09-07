@@ -145,7 +145,7 @@ pan_get_model(uint64_t gpu_id, uint32_t gpu_variant)
    uint32_t gpu_prod_id = pan_prod_id(gpu_id);
    for (unsigned i = 0; i < ARRAY_SIZE(pan_model_list); ++i) {
       if (pan_model_list[i].gpu_prod_id == gpu_prod_id &&
-          pan_model_list[i].gpu_variant == gpu_variant)
+          (pan_model_list[i].gpu_variant == gpu_variant || pan_arch(gpu_id) <= 7)) /* PATCH: this G52 reports CORE_FEATURES variant=2, but Bifrost table entries hardcode variant=0; ignore variant for Bifrost (arch<=7) since product_id is already unique per model there */
          return &pan_model_list[i];
    }
 
