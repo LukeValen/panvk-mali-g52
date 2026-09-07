@@ -112,3 +112,59 @@ This repository contains only patches, a raw-ioctl prototype, and
 documentation. Mesa itself is MIT-licensed; see
 https://gitlab.freedesktop.org/mesa/mesa. The `funnymdzz/mesa` fork this
 builds on is also Mesa-derived (MIT).
+
+### Phase 3 — raw Kbase JM job submission (own work, standalone harnesses)
+
+Since command submission isn't implemented upstream (Phase 2's fork), we
+prototyped it directly against the kernel UAPI, independent of Mesa. All
+harnesses live in `kbase-jm-prototype/`.
+
+**Confirmed handshake** (`kbase_handshake.c`): `KBASE_IOCTL_VERSION_CHECK` →
+`KBASE_IOCTL_SET_FLAGS` → `mmap(BASE_MEM_MAP_TRACKING_HANDLE)`. Every other
+ioctl returns `EPERM` before this sequence completes.
+
+**Dead end, then the real fix — `core_req`:** submitting a `base_jd_atom_v2`
+with `jc` pointing to a real, byte-verified `MALI_JOB_TYPE_WRITE_VALUE` job
+chain (built with Mesa's own genxml pack macros, header-only, no linking
+needed) consistently "succeeded" — kernel returned `BASE_JD_EVENT_DONE` in
+~29µs — but never actually wrote anything to memory. Extensive elimination
+(cache sync via `KBASE_IOCTL_MEM_SYNC`, byte-level hexdump verification of
+the packed job, stride bisection across 40–96 bytes confirming the kernel
+only accepts 48/56/64) ruled out struct-layout issues entirely: **all three
+accepted strides still faked completion without touching hardware.**
+
+The real cause, found by reading the actual `mali_kbase_jd.c` kernel source
+(`jd_run_atom()`): `core_req` is masked with `BASE_JD_REQ_ATOM_TYPE`, and if
+the result equals `BASE_JD_REQ_DEP` (i.e. `core_req == 0`), the atom is
+marked complete **immediately, regardless of `jc`**. We had left `core_req`
+at `0` in every test. The correct flag for a `WRITE_VALUE` job is
+`BASE_JD_REQ_V = (1 << 4) = 0x10` ("Requires value writeback").
+
+**Result with `core_req = 0x10`:** everything changed. Submit-to-event time
+jumped from 29µs to **1761µs** (a real hardware round-trip signature).
+`exception_status` in the job header — untouched (`0x0`) in every prior
+test — changed to `0x10258` after this submission: the **hardware wrote
+back** into our job header for the first time. The event code is
+`0x58` = `BASE_JD_EVENT_DATA_INVALID_FAULT` — a genuine hardware fault
+code, not a fabricated `DONE`.
+
+This confirms, for the first time, that the GPU actually receives and
+processes a job submitted via raw Kbase ioctls on this device. The write
+itself still doesn't land (job faults instead of completing), so the
+current open question is what's wrong with the payload encoding for this
+architecture — not whether jobs reach the hardware at all.
+
+**Related work found mid-investigation:** a fork of this repo by
+[mexicanbr0auth](https://github.com/mexicanbr0auth/panvk-mali-g57), porting
+this same approach to a Mali-G57 (Valhall) on a newer kernel/DDK
+(r54p1/UAPI 11.46). Their `base_jd_atom` layout differs from ours (64-byte
+struct with a `renderpass_id` field at a different offset) — direct proof
+that atom layout varies by DDK version and can't be assumed across devices;
+useful as methodology reference, not as literal values to copy.
+
+## Event code reference (`base_jd_event_code`)
+`0x00`=NOT_STARTED, `0x01`=DONE, `0x03`=STOPPED, `0x04`=TERMINATED,
+`0x40`=JOB_CONFIG_FAULT, `0x58`=DATA_INVALID_FAULT, `0x59`=TILE_RANGE_FAULT,
+`0x60`=OUT_OF_MEMORY, `0x7F`=UNKNOWN, `0x80`=DELAYED_BUS_FAULT,
+`0x88`=SHAREABILITY_FAULT, `0xC1`-`0xC4`=TRANSLATION_FAULT_LEVEL1-4,
+`0xC8`=PERMISSION_FAULT
