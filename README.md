@@ -209,3 +209,19 @@ Vulkan blob.
 **Not yet tested:** real graphics draw calls (vertex + fragment,
 `core_req=0x01` path unverified), async/pipelined submission, WSI/display
 output — needed before this can render an actual game frame via Winlator.
+
+### Phase 5 — GPU variant recognition fix
+
+Community input (thanks to Isaac Andrade for reviewing the project and
+flagging this) identified that the "unknown gpu_id" warning had a fixable
+root cause: `pan_model.c`'s `BIFROST_MODEL` macro hardcodes `gpu_variant=0`
+for every Bifrost table entry, but this specific G52 reports
+`gpu_variant=0x2` (read from `CORE_FEATURES`). Since `product_id=0x7402` is
+already unique to "G52 r1" in the table, `gpu_variant` was redundant for
+this match. One-line patch in `pan_get_model()`
+(`panvk-driver-patch/gpu_variant_fix.patch`): ignore `gpu_variant` for
+Bifrost (`arch <= 7`).
+
+**Result:** the device is now correctly identified as `Mali-G52 r1 MC2`
+instead of `Mali unknown 0x74021000 MC2` — unlocking model-specific
+defaults instead of the conservative generic-Bifrost fallback.
