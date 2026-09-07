@@ -1,0 +1,176 @@
+diff --git a/src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c b/src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c
+index bc1bc0f..570529e 100644
+--- a/src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c
++++ b/src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c
+@@ -28,6 +28,49 @@
+ #include "vk_framebuffer.h"
+ 
+ #include "drm-uapi/panfrost_drm.h"
++#include "drm-uapi/mali_kbase_ioctl.h"
++#include <poll.h>
++
++struct panvk_kbase_event_v2 {
++   uint32_t event_code;
++   uint8_t atom_number;
++   uint8_t padding[3];
++   uint64_t udata[2];
++};
++
++static int
++panvk_kbase_submit_and_wait(int fd, uint64_t jc, uint32_t core_req)
++{
++   uint8_t atom_bytes[48];
++   memset(atom_bytes, 0, sizeof(atom_bytes));
++   memcpy(atom_bytes + 0, &jc, 8);
++   atom_bytes[40] = 1;
++   memcpy(atom_bytes + 44, &core_req, 4);
++
++   struct kbase_ioctl_job_submit submit = {
++      .addr = (uint64_t)(uintptr_t)atom_bytes,
++      .nr_atoms = 1,
++      .stride = 48,
++   };
++
++   if (ioctl(fd, KBASE_IOCTL_JOB_SUBMIT, &submit))
++      return -errno;
++
++   struct pollfd pfd = { .fd = fd, .events = POLLIN };
++   int pret = poll(&pfd, 1, 5000);
++   if (pret <= 0 || !(pfd.revents & POLLIN))
++      return -110;
++
++   struct panvk_kbase_event_v2 event;
++   ssize_t n = read(fd, &event, sizeof(event));
++   if (n != sizeof(event))
++      return -5;
++
++   if (event.event_code != 0x1)
++      return -(int)event.event_code;
++
++   return 0;
++}
+ 
+ static void
+ panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
+@@ -67,82 +110,30 @@ panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
+    pan_kmod_flush_bo_map_syncs(dev->kmod.dev);
+ 
+    if (batch->vtc_jc.first_job) {
+-      struct drm_panfrost_submit submit = {
+-         .bo_handles = (uintptr_t)bos,
+-         .bo_handle_count = nr_bos,
+-         .in_syncs = (uintptr_t)in_fences,
+-         .in_sync_count = nr_in_fences,
+-         .out_sync = queue->sync,
+-         .jc = batch->vtc_jc.first_job,
+-      };
+-
+-      ret = pan_kmod_ioctl(dev->drm_fd, DRM_IOCTL_PANFROST_SUBMIT, &submit);
++      ret = panvk_kbase_submit_and_wait(dev->drm_fd, batch->vtc_jc.first_job, 0x16) /* PATCH: T|CS|V combined, vtc_jc may contain mixed job types */;
+       assert(!ret);
+ 
+-      if (PANVK_DEBUG(TRACE) || PANVK_DEBUG(SYNC)) {
+-         ret = drmSyncobjWait(dev->drm_fd, &submit.out_sync, 1, INT64_MAX, 0,
+-                              NULL);
+-         assert(!ret);
+-
+-         /* If we want to read the descriptors back, we need to invalidate the
+-          * whole desc pool, otherwise we might end up with stale data. */
+-         panvk_pool_invalidate_maps(&cmdbuf->desc_pool);
+-         pan_kmod_flush_bo_map_syncs(dev->kmod.dev);
+-      }
+-
+       if (PANVK_DEBUG(TRACE)) {
++         panvk_pool_invalidate_maps(&cmdbuf->desc_pool);
+          pandecode_jc(dev->debug.decode_ctx, batch->vtc_jc.first_job,
+                       phys_dev->kmod.dev->props.gpu_id);
+       }
+ 
+       if (PANVK_DEBUG(DUMP))
+          pandecode_dump_mappings(dev->debug.decode_ctx);
+-
+-      if (PANVK_DEBUG(SYNC))
+-         pandecode_abort_on_fault(dev->debug.decode_ctx, submit.jc,
+-                                  phys_dev->kmod.dev->props.gpu_id);
+    }
+ 
+    if (batch->frag_jc.first_job) {
+-      struct drm_panfrost_submit submit = {
+-         .bo_handles = (uintptr_t)bos,
+-         .bo_handle_count = nr_bos,
+-         .out_sync = queue->sync,
+-         .jc = batch->frag_jc.first_job,
+-         .requirements = PANFROST_JD_REQ_FS,
+-      };
+-
+-      if (batch->vtc_jc.first_job) {
+-         submit.in_syncs = (uintptr_t)(&queue->sync);
+-         submit.in_sync_count = 1;
+-      } else {
+-         submit.in_syncs = (uintptr_t)in_fences;
+-         submit.in_sync_count = nr_in_fences;
+-      }
+-
+-      ret = pan_kmod_ioctl(dev->drm_fd, DRM_IOCTL_PANFROST_SUBMIT, &submit);
++      ret = panvk_kbase_submit_and_wait(dev->drm_fd, batch->frag_jc.first_job, 0x01);
+       assert(!ret);
+-      if (PANVK_DEBUG(TRACE) || PANVK_DEBUG(SYNC)) {
+-         ret = drmSyncobjWait(dev->drm_fd, &submit.out_sync, 1, INT64_MAX, 0,
+-                              NULL);
+-         assert(!ret);
+-
+-         /* If we want to read the descriptors back, we need to invalidate the
+-          * whole desc pool, otherwise we might end up with stale data. */
++      if (PANVK_DEBUG(TRACE)) {
+          panvk_pool_invalidate_maps(&cmdbuf->desc_pool);
+-         pan_kmod_flush_bo_map_syncs(dev->kmod.dev);
+-      }
+-
+-      if (PANVK_DEBUG(TRACE))
+          pandecode_jc(dev->debug.decode_ctx, batch->frag_jc.first_job,
+                       phys_dev->kmod.dev->props.gpu_id);
++      }
+ 
+       if (PANVK_DEBUG(DUMP))
+          pandecode_dump_mappings(dev->debug.decode_ctx);
+-
+-      if (PANVK_DEBUG(SYNC))
+-         pandecode_abort_on_fault(dev->debug.decode_ctx, submit.jc,
+-                                  phys_dev->kmod.dev->props.gpu_id);
+    }
+ 
+    if (PANVK_DEBUG(TRACE))
+@@ -349,12 +340,7 @@ panvk_per_arch(create_gpu_queue)(struct panvk_device *device,
+    if (result != VK_SUCCESS)
+       goto err_free_queue;
+ 
+-   int ret = drmSyncobjCreate(device->drm_fd, DRM_SYNCOBJ_CREATE_SIGNALED,
+-                              &queue->sync);
+-   if (ret) {
+-      result = panvk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
+-      goto err_finish_queue;
+-   }
++   queue->sync = 0;
+ 
+    queue->vk.driver_submit = panvk_per_arch(gpu_queue_submit);
+    *out_queue = &queue->vk;
+@@ -374,7 +360,7 @@ void panvk_per_arch(destroy_gpu_queue)(struct vk_queue *vk_queue)
+    struct panvk_device *dev = to_panvk_device(vk_queue->base.device);
+ 
+    vk_queue_finish(&queue->vk);
+-   drmSyncobjDestroy(dev->drm_fd, queue->sync);
++   /* PATCH: no drm_syncobj to destroy */
+    vk_free(&dev->vk.alloc, queue);
+ }
+ 
+@@ -399,10 +385,5 @@ panvk_per_arch(QueueWaitIdle)(VkQueue _queue)
+       return VK_ERROR_DEVICE_LOST;
+    }
+ 
+-   ASSERTED int ret = drmSyncobjWait(dev->drm_fd, &queue->sync, 1,
+-                                     INT64_MAX, DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL,
+-                                     NULL);
+-   assert(!ret);
+-
+    return VK_SUCCESS;
+ }

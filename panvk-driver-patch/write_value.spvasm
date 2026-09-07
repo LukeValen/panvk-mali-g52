@@ -1,0 +1,33 @@
+; SPIR-V
+; Version: 1.0
+; Generator: Khronos SPIR-V Tools Assembler; 0
+; Bound: 15
+; Schema: 0
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main"
+               OpExecutionMode %main LocalSize 1 1 1
+               OpSource GLSL 450
+               OpDecorate %_runtimearr_uint ArrayStride 4
+               OpMemberDecorate %Buf 0 Offset 0
+               OpDecorate %Buf BufferBlock
+               OpDecorate %buf DescriptorSet 0
+               OpDecorate %buf Binding 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+       %uint = OpTypeInt 32 0
+%_runtimearr_uint = OpTypeRuntimeArray %uint
+        %Buf = OpTypeStruct %_runtimearr_uint
+%_ptr_Uniform_Buf = OpTypePointer Uniform %Buf
+        %buf = OpVariable %_ptr_Uniform_Buf Uniform
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+     %uint_0 = OpConstant %uint 0
+%_ptr_Uniform_uint = OpTypePointer Uniform %uint
+   %uint_777 = OpConstant %uint 777
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+         %14 = OpAccessChain %_ptr_Uniform_uint %buf %int_0 %uint_0
+               OpStore %14 %uint_777
+               OpReturn
+               OpFunctionEnd

@@ -168,3 +168,44 @@ useful as methodology reference, not as literal values to copy.
 `0x60`=OUT_OF_MEMORY, `0x7F`=UNKNOWN, `0x80`=DELAYED_BUS_FAULT,
 `0x88`=SHAREABILITY_FAULT, `0xC1`-`0xC4`=TRANSLATION_FAULT_LEVEL1-4,
 `0xC8`=PERMISSION_FAULT
+
+### Phase 4 — real PanVK driver patched to submit via Kbase (own work)
+
+With the raw-ioctl recipe from Phase 3 proven, we patched the actual PanVK
+driver's submission path (`src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c`),
+not just standalone harnesses. Patches applied programmatically (Python,
+each replacement guarded by an exact-match assert) — see
+`panvk-driver-patch/` for the scripts and the resulting diff.
+
+**What changed:** both `DRM_IOCTL_PANFROST_SUBMIT` call sites (vertex/tiler/
+compute chain and fragment chain) replaced with a helper that submits via
+raw `KBASE_IOCTL_JOB_SUBMIT` and blocks synchronously on completion
+(`poll()` + `read()` of the completion event) — the same mechanism proven
+in Phase 3. `drm_syncobj` (create/destroy/wait) removed entirely, since it
+depends on real DRM ioctls the kbase fd doesn't support, and synchronous
+submission doesn't need it. This sacrifices async pipelining for
+correctness first; optimizing back to async (via kbase's `sync_file`-backed
+soft-fence atoms) is future work, not required for functional correctness.
+
+`core_req` values: `0x16` (`T|CS|V` combined) for the vertex/tiler/compute
+chain — since it can contain mixed job types — and `0x01` (`FS`) for the
+fragment chain, matching the naming already used by the DRM driver
+(`PANFROST_JD_REQ_FS`).
+
+**Result: full Vulkan compute pipeline confirmed working end to end.**
+`vkCreateInstance` → `vkCreateDevice` → `vkCreateBuffer` +
+`vkCreateShaderModule` (a real SPIR-V compute shader, assembled with
+`spirv-as` from `write_value.spvasm` — no `glslang` needed) →
+`vkCreateComputePipeline` → descriptor sets → a recorded command buffer
+with `vkCmdDispatch(1,1,1)` → `vkQueueSubmit` (exercising the patched
+Kbase path) → `vkQueueWaitIdle` → buffer readback returns exactly the
+value the shader was compiled to write. See `panvk_compute_test.c`.
+
+This is the first confirmed real GPU compute execution through the actual
+Vulkan driver (not a standalone test) on a Mali-G52 via `mali_kbase`
+without a DRM kernel module, without root, and without the proprietary
+Vulkan blob.
+
+**Not yet tested:** real graphics draw calls (vertex + fragment,
+`core_req=0x01` path unverified), async/pipelined submission, WSI/display
+output — needed before this can render an actual game frame via Winlator.
