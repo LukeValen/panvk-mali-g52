@@ -212,7 +212,7 @@ output — needed before this can render an actual game frame via Winlator.
 
 ### Phase 5 — GPU variant recognition fix
 
-Community input (thanks to Isaac Andrade for reviewing the project and
+Community input (thanks wonderkast02 to Wonder for reviewing the project and
 flagging this) identified that the "unknown gpu_id" warning had a fixable
 root cause: `pan_model.c`'s `BIFROST_MODEL` macro hardcodes `gpu_variant=0`
 for every Bifrost table entry, but this specific G52 reports
