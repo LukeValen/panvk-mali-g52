@@ -242,3 +242,26 @@ with no warnings at all. This means the previous `EPERM` was a real
 ordering bug, not benign — it likely means executable GPU memory (needed
 for real shaders, not just compute buffers) was silently broken before this
 fix. See `panvk-driver-patch/exec_init_order_fix.patch`.
+
+### Phase 7 — real graphics draw call confirmed (offscreen)
+
+With the graphics (`FS`) submission path unverified, we tested it directly:
+`panvk_draw_test.c` creates a 4×4 offscreen `R8G8B8A8` color image, a render
+pass, a real graphics pipeline with hand-written SPIR-V vertex and fragment
+shaders (`triangle_vert.spvasm`/`triangle_frag.spvasm` — no `glslang`
+available in Termux, assembled with `spirv-as`, validated with `spirv-val`),
+draws a full-screen triangle, copies the result to a host-visible buffer,
+and reads it back.
+
+**Result: pixel readback = RGBA(255, 0, 0, 255)** — exactly the red the
+fragment shader writes. This confirms the `frag_jc`/`core_req=0x01` (`FS`)
+path in our Kbase submission patch works correctly, completing validation
+of both submission paths used by the real driver (vertex/tiler/compute via
+`0x16`, fragment via `0x01`).
+
+**Note:** this is an offscreen test — the image only exists in GPU memory,
+never connected to a display. Nothing appears on screen. Showing something
+on-screen requires WSI (window system integration) — a swapchain backed by
+an `ANativeWindow`, since kbase exposes no `/dev/dri` and the standard
+PanVK WSI paths (DRM/X11/Wayland) don't apply here. That's separate,
+not-yet-started work.

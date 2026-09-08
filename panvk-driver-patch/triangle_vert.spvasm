@@ -1,0 +1,51 @@
+; SPIR-V
+; Version: 1.0
+; Generator: Khronos SPIR-V Tools Assembler; 0
+; Schema: 0
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main" %gl_VertexIndex %out_pv
+               OpSource GLSL 450
+               OpDecorate %gl_VertexIndex BuiltIn VertexIndex
+               OpMemberDecorate %gl_PerVertex 0 BuiltIn Position
+               OpMemberDecorate %gl_PerVertex 1 BuiltIn PointSize
+               OpMemberDecorate %gl_PerVertex 2 BuiltIn ClipDistance
+               OpMemberDecorate %gl_PerVertex 3 BuiltIn CullDistance
+               OpDecorate %gl_PerVertex Block
+       %void = OpTypeVoid
+       %fnvoid = OpTypeFunction %void
+        %int = OpTypeInt 32 1
+%ptr_Input_int = OpTypePointer Input %int
+%gl_VertexIndex = OpVariable %ptr_Input_int Input
+      %float = OpTypeFloat 32
+    %v4float = OpTypeVector %float 4
+       %uint = OpTypeInt 32 0
+     %uint_1 = OpConstant %uint 1
+%arr1_float = OpTypeArray %float %uint_1
+%gl_PerVertex = OpTypeStruct %v4float %float %arr1_float %arr1_float
+%ptr_Output_gl_PerVertex = OpTypePointer Output %gl_PerVertex
+     %out_pv = OpVariable %ptr_Output_gl_PerVertex Output
+      %int_0 = OpConstant %int 0
+   %float_n1 = OpConstant %float -1
+    %float_1 = OpConstant %float 1
+    %float_3 = OpConstant %float 3
+    %float_0 = OpConstant %float 0
+         %v0 = OpConstantComposite %v4float %float_n1 %float_n1 %float_0 %float_1
+         %v1 = OpConstantComposite %v4float %float_3 %float_n1 %float_0 %float_1
+         %v2 = OpConstantComposite %v4float %float_n1 %float_3 %float_0 %float_1
+     %uint_3 = OpConstant %uint 3
+%arr3_v4float = OpTypeArray %v4float %uint_3
+     %positions = OpConstantComposite %arr3_v4float %v0 %v1 %v2
+%ptr_Private_arr3 = OpTypePointer Private %arr3_v4float
+    %pos_arr = OpVariable %ptr_Private_arr3 Private %positions
+%ptr_Private_v4float = OpTypePointer Private %v4float
+%ptr_Output_v4float = OpTypePointer Output %v4float
+       %main = OpFunction %void None %fnvoid
+      %entry = OpLabel
+        %idx = OpLoad %int %gl_VertexIndex
+     %srcptr = OpAccessChain %ptr_Private_v4float %pos_arr %idx
+        %val = OpLoad %v4float %srcptr
+     %dstptr = OpAccessChain %ptr_Output_v4float %out_pv %int_0
+               OpStore %dstptr %val
+               OpReturn
+               OpFunctionEnd
