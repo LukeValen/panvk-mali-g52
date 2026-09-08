@@ -225,3 +225,20 @@ Bifrost (`arch <= 7`).
 **Result:** the device is now correctly identified as `Mali-G52 r1 MC2`
 instead of `Mali unknown 0x74021000 MC2` — unlocking model-specific
 defaults instead of the conservative generic-Bifrost fallback.
+
+### Phase 6 — EXEC_INIT ordering fix
+
+Second tip from Isaac Andrade: swap the order of `KBASE_IOCTL_MEM_EXEC_INIT`
+and `KBASE_IOCTL_MEM_JIT_INIT` in `kbase_kmod.c` — run EXEC_INIT first. This
+contradicted what the G57 fork's notes said (that the `EPERM` on EXEC_INIT
+was normal "once-only ioctl" behavior), so we treated it as an unconfirmed
+hypothesis and tested it directly rather than assuming either source was
+right.
+
+**Result: confirmed correct.** The `KBASE_IOCTL_MEM_EXEC_INIT failed:
+Operation not permitted` warning is gone entirely after reordering. The
+full compute pipeline test (Phase 4) was re-run and still passes cleanly,
+with no warnings at all. This means the previous `EPERM` was a real
+ordering bug, not benign — it likely means executable GPU memory (needed
+for real shaders, not just compute buffers) was silently broken before this
+fix. See `panvk-driver-patch/exec_init_order_fix.patch`.

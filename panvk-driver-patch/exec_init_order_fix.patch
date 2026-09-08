@@ -1,0 +1,42 @@
+diff --git a/src/panfrost/lib/kmod/kbase_kmod.c b/src/panfrost/lib/kmod/kbase_kmod.c
+index 9dfcb25..5ea47c6 100644
+--- a/src/panfrost/lib/kmod/kbase_kmod.c
++++ b/src/panfrost/lib/kmod/kbase_kmod.c
+@@ -1169,6 +1169,13 @@ kbase_kmod_dev_create(int fd, uint32_t flags,
+       goto err_unmap_tracking;
+    }
+ 
++   /* PATCH: EXEC_INIT moved before JIT_INIT (community suggestion, testing if order affects EPERM) */
++   struct kbase_ioctl_mem_exec_init exec_init = { .va_pages = 0x100000 };
++   if (ioctl(fd, KBASE_IOCTL_MEM_EXEC_INIT, &exec_init)) {
++      mesa_logw("kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: %s "
++                "(executable BO allocation will not work)", strerror(errno));
++   }
++
+    /* Initialise the JIT allocator.  This must happen before any allocation
+     * is made: besides setting up JIT, on 64-bit clients this is what carves
+     * the CUSTOM_VA zone out of the top of the SAME_VA zone
+@@ -1178,9 +1185,9 @@ kbase_kmod_dev_create(int fd, uint32_t flags,
+     * panfork's.  Failure is non-fatal for enumeration but breaks tiler
+     * heaps, so warn. */
+    struct kbase_ioctl_mem_jit_init jit_init = {
+-      .va_pages = 1ull << 25,
++      .va_pages = 1ull << 20 /* PATCH: reduced from panfork's 1<<25 (~128GB VA) - testing if kernel 4.19 rejects oversized JIT VA request */,
+       .max_allocations = 255,
+-      .phys_pages = 1ull << 25,
++      .phys_pages = 1ull << 20,
+    };
+    if (ioctl(fd, KBASE_IOCTL_MEM_JIT_INIT, &jit_init)) {
+       mesa_logw("kbase: KBASE_IOCTL_MEM_JIT_INIT failed: %s "
+@@ -1192,11 +1199,6 @@ kbase_kmod_dev_create(int fd, uint32_t flags,
+     * matches what panfork uses.  On CSF uAPI >= 1.9 the zone is set up
+     * automatically and this is a no-op.  Failure is not fatal for
+     * enumeration, but executable allocations will fail later, so warn. */
+-   struct kbase_ioctl_mem_exec_init exec_init = { .va_pages = 0x100000 };
+-   if (ioctl(fd, KBASE_IOCTL_MEM_EXEC_INIT, &exec_init)) {
+-      mesa_logw("kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: %s "
+-                "(executable BO allocation will not work)", strerror(errno));
+-   }
+ 
+    struct kbase_kmod_dev *kbase_dev =
+       pan_kmod_alloc(allocator, sizeof(*kbase_dev));
