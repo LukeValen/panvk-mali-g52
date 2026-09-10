@@ -265,3 +265,33 @@ on-screen requires WSI (window system integration) — a swapchain backed by
 an `ANativeWindow`, since kbase exposes no `/dev/dri` and the standard
 PanVK WSI paths (DRM/X11/Wayland) don't apply here. That's separate,
 not-yet-started work.
+
+### Phase 8 — WSI investigation (X11/XCB), in progress
+
+Started implementing real on-screen presentation via WSI. `wsi_common_x11.c`
+was confirmed present and buildable (`-Dplatforms=x11` compiles cleanly with
+no conflict against the earlier direct-display WSI patches). Set up `Xvfb`
++ `xorgproto`/`libxrandr`/`xcb-*` in Termux to test locally.
+
+**Confirmed working in isolation:**
+- `VK_KHR_xcb_surface` present in instance extensions
+- `vkGetPhysicalDeviceXcbPresentationSupportKHR` returns `YES`
+- Creating a window + `VkSurfaceKHR` via **XCB** (not Xlib) and calling
+  `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` on it works correctly in a
+  minimal standalone test (`wsi-investigation/vk_surface_xcb_check.c`)
+
+**Still broken:** the same call, inside the fuller
+`panvk_swapchain_test_xcb.c` (device creation, more proc addrs resolved
+first, etc.), hangs indefinitely — confirmed via `/proc/PID/wchan` showing
+`futex_wait_queue_me` (blocked on a userspace mutex, not waiting on the X
+server). Root cause not found yet despite systematic bisection between the
+working minimal test and the hanging fuller one — they appear semantically
+identical in call order and flags. Note: `vkCreateXlibSurfaceKHR` was
+initially suspected and is broken too, but switching to
+`vkCreateXcbSurfaceKHR` alone did not fix the fuller test, so Xlib-vs-XCB
+was a red herring for the full case (even though the minimal-XCB case
+does work).
+
+This does not block anything already proven working (compute, offscreen
+draw) — it only affects on-screen presentation, which is separate,
+not-yet-necessary work for further GPU-side progress. To be resumed.
