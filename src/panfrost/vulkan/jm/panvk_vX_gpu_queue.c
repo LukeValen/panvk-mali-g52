@@ -304,11 +304,21 @@ panvk_per_arch(gpu_queue_submit)(struct vk_queue *vk_queue, struct vk_queue_subm
 
    /* Transfer the out fence to signal semaphores */
    for (unsigned i = 0; i < submit->signal_count; i++) {
-      assert(vk_sync_type_is_drm_syncobj(submit->signals[i].sync->type));
-      struct vk_drm_syncobj *syncobj =
-         vk_sync_as_drm_syncobj(submit->signals[i].sync);
-
-      panvk_queue_transfer_sync(queue, syncobj->syncobj);
+      struct vk_sync *out_sync = submit->signals[i].sync;
+      if (vk_sync_type_is_drm_syncobj(out_sync->type)) {
+         struct vk_drm_syncobj *syncobj = vk_sync_as_drm_syncobj(out_sync);
+         panvk_queue_transfer_sync(queue, syncobj->syncobj);
+      } else {
+         /* kbase backend: submission above already waited synchronously
+          * (poll()+read() in panvk_kbase_submit_and_wait), so the work is
+          * known complete here. Signal directly via the generic vk_sync
+          * interface instead of assuming drm_syncobj. */
+         VkResult sig_result =
+            vk_sync_signal(queue->vk.base.device, out_sync,
+                           submit->signals[i].signal_value);
+         if (sig_result != VK_SUCCESS)
+            return sig_result;
+      }
    }
 
    return VK_SUCCESS;
