@@ -266,32 +266,27 @@ an `ANativeWindow`, since kbase exposes no `/dev/dri` and the standard
 PanVK WSI paths (DRM/X11/Wayland) don't apply here. That's separate,
 not-yet-started work.
 
-### Phase 8 — WSI investigation (X11/XCB), in progress
+### Phase 8 — WSI (X11/XCB) — RESOLVED
 
-Started implementing real on-screen presentation via WSI. `wsi_common_x11.c`
-was confirmed present and buildable (`-Dplatforms=x11` compiles cleanly with
-no conflict against the earlier direct-display WSI patches). Set up `Xvfb`
-+ `xorgproto`/`libxrandr`/`xcb-*` in Termux to test locally.
+Picked up the hang from the state above. Investigation dead ends worth
+noting: not a fork-after-threads deadlock, not the disk shader cache,
+not DRI3-vs-MIT-SHM path selection, not Xvfb-specific. Buffered stdout
+without fflush() also gave a false read on where execution stopped —
+always test with stdbuf -o0 -e0 when chasing a hang like this.
 
-**Confirmed working in isolation:**
-- `VK_KHR_xcb_surface` present in instance extensions
-- `vkGetPhysicalDeviceXcbPresentationSupportKHR` returns `YES`
-- Creating a window + `VkSurfaceKHR` via **XCB** (not Xlib) and calling
-  `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` on it works correctly in a
-  minimal standalone test (`wsi-investigation/vk_surface_xcb_check.c`)
+Root cause: the out-fence signaling loop in gpu_queue_submit() assumed
+every signal semaphore was a drm_syncobj. The kbase backend uses its
+own kbase_cpu_sync_type instead, and with asserts disabled in release
+builds this fell through silently — kbase_cpu_sync_signal() was never
+called, so any semaphore an app waited on stayed unsignaled forever.
 
-**Still broken:** the same call, inside the fuller
-`panvk_swapchain_test_xcb.c` (device creation, more proc addrs resolved
-first, etc.), hangs indefinitely — confirmed via `/proc/PID/wchan` showing
-`futex_wait_queue_me` (blocked on a userspace mutex, not waiting on the X
-server). Root cause not found yet despite systematic bisection between the
-working minimal test and the hanging fuller one — they appear semantically
-identical in call order and flags. Note: `vkCreateXlibSurfaceKHR` was
-initially suspected and is broken too, but switching to
-`vkCreateXcbSurfaceKHR` alone did not fix the fuller test, so Xlib-vs-XCB
-was a red herring for the full case (even though the minimal-XCB case
-does work).
+Fix (panvk-driver-patch/wsi_present_sync_fix.patch): branch on sync
+type; non-drm_syncobj types now signal via the generic vk_sync_signal(),
+safe because kbase submission is already synchronous.
 
-This does not block anything already proven working (compute, offscreen
-draw) — it only affects on-screen presentation, which is separate,
-not-yet-necessary work for further GPU-side progress. To be resumed.
+Result: panvk_swapchain_test_xcb completes 3/3 frames cleanly.
+Confirmed independently with unmodified vkcube --wsi xlib — first real
+on-screen frame rendered through this driver stack.
+
+Not X11-specific — affects any real submission with output semaphores
+on this backend, so should unblock Winlator once packaging starts.

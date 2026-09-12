@@ -1,0 +1,61 @@
+From b226cb4341a77948cbb57bb4a9343f719a2f9f03 Mon Sep 17 00:00:00 2001
+From: Luke <marechal.coments87@gmail.com>
+Date: Fri, 11 Sep 2026 19:25:25 -0300
+Subject: [PATCH] Phase 8: fix WSI present hang - signal loop assumed
+ drm_syncobj unconditionally
+
+The out-fence signaling loop in gpu_queue_submit asserted every signal
+semaphore was a drm_syncobj, which is invalid for the kbase backend
+(no DRM node -> kbase_cpu_sync_type instead). With asserts compiled
+out in release builds this fell through silently, so
+kbase_cpu_sync_signal() was never called - any semaphore an app waited
+on (e.g. the WSI present semaphore) stayed unsignaled forever, hanging
+every thread waiting on it.
+
+Fix: branch on sync type. drm_syncobj keeps the existing
+panvk_queue_transfer_sync() path; any other type signals directly via
+the generic vk_sync_signal(), safe here since kbase submission is
+already synchronous (poll()+read() completion wait happens before
+this loop runs).
+
+Confirmed: panvk_swapchain_test_xcb completes 3/3 frames cleanly.
+Confirmed independently with unmodified vkcube --wsi xlib - first real
+on-screen frame rendered through this driver stack.
+---
+ src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c | 20 +++++++++++++++-----
+ 1 file changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c b/src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c
+index 570529e..c4638a9 100644
+--- a/src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c
++++ b/src/panfrost/vulkan/jm/panvk_vX_gpu_queue.c
+@@ -304,11 +304,21 @@ panvk_per_arch(gpu_queue_submit)(struct vk_queue *vk_queue, struct vk_queue_subm
+ 
+    /* Transfer the out fence to signal semaphores */
+    for (unsigned i = 0; i < submit->signal_count; i++) {
+-      assert(vk_sync_type_is_drm_syncobj(submit->signals[i].sync->type));
+-      struct vk_drm_syncobj *syncobj =
+-         vk_sync_as_drm_syncobj(submit->signals[i].sync);
+-
+-      panvk_queue_transfer_sync(queue, syncobj->syncobj);
++      struct vk_sync *out_sync = submit->signals[i].sync;
++      if (vk_sync_type_is_drm_syncobj(out_sync->type)) {
++         struct vk_drm_syncobj *syncobj = vk_sync_as_drm_syncobj(out_sync);
++         panvk_queue_transfer_sync(queue, syncobj->syncobj);
++      } else {
++         /* kbase backend: submission above already waited synchronously
++          * (poll()+read() in panvk_kbase_submit_and_wait), so the work is
++          * known complete here. Signal directly via the generic vk_sync
++          * interface instead of assuming drm_syncobj. */
++         VkResult sig_result =
++            vk_sync_signal(queue->vk.base.device, out_sync,
++                           submit->signals[i].signal_value);
++         if (sig_result != VK_SUCCESS)
++            return sig_result;
++      }
+    }
+ 
+    return VK_SUCCESS;
+-- 
+2.54.0
+
