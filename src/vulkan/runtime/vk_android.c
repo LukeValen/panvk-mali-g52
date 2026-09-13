@@ -1088,13 +1088,31 @@ vk_common_GetAndroidHardwareBufferPropertiesANDROID(
 
    const native_handle_t *handle = AHardwareBuffer_getNativeHandle(buffer);
    assert(handle && handle->numFds > 0);
-   pProperties->allocationSize = lseek(handle->data[0], 0, SEEK_END);
+   /* PATCH: some gralloc implementations (observed with u_gralloc fallback
+    * on MediaTek/Mali devices without a real vendor gralloc HAL) do not
+    * place the dma-buf fd at data[0] - that slot may hold a metadata/ashmem
+    * fd instead, with the real dma-buf at a later index. Probe each fd via
+    * lseek(SEEK_END), which only succeeds on a real dma-buf, instead of
+    * assuming a fixed index. */
+   int dma_buf_fd = handle->data[0];
+   off_t dma_buf_size = lseek(dma_buf_fd, 0, SEEK_END);
+   if (dma_buf_size <= 0) {
+      for (int _i = 1; _i < handle->numFds; _i++) {
+         off_t _sz = lseek(handle->data[_i], 0, SEEK_END);
+         if (_sz > 0) {
+            dma_buf_fd = handle->data[_i];
+            dma_buf_size = _sz;
+            break;
+         }
+      }
+   }
+   pProperties->allocationSize = dma_buf_size;
 
    VkMemoryFdPropertiesKHR fd_props = {
       .sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR,
    };
    result = device->dispatch_table.GetMemoryFdPropertiesKHR(
-      device_h, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, handle->data[0],
+      device_h, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, dma_buf_fd,
       &fd_props);
    if (result != VK_SUCCESS)
       return result;

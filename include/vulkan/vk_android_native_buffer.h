@@ -17,7 +17,7 @@
  * system rather the build target.
  */
 
-#if (defined(__ANDROID__) || defined(ANDROID)) && 0 /* PATCH: Termux toolchain lacks AOSP cutils/native_handle.h; use portable buffer_handle_t */
+#if (defined(__ANDROID__) || defined(ANDROID)) /* Termux ndk-sysroot now provides real cutils/native_handle.h */
 
 #include <cutils/native_handle.h>
 #if ANDROID_API_LEVEL < 28

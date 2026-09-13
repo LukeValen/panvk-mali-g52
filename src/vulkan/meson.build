@@ -6,18 +6,15 @@ vk_api_xml = files('registry/vk.xml')
 vulkan_icd_link_args = []
 vulkan_icd_link_depends = []
 
-if with_platform_android
-  vulkan_icd_symbols = files('vulkan-icd-android-symbols.txt')
-  if with_ld_version_script
-    vulkan_icd_link_args += ['-Wl,--version-script', join_paths(meson.current_source_dir(), 'vulkan-android.sym')]
-    vulkan_icd_link_depends += files('vulkan-android.sym')
-  endif
-else
-  vulkan_icd_symbols = files('vulkan-icd-symbols.txt')
-  if with_ld_version_script
-    vulkan_icd_link_args += ['-Wl,--version-script', join_paths(meson.current_source_dir(), 'vulkan.sym')]
-    vulkan_icd_link_depends += files('vulkan.sym')
-  endif
+# PATCH: Termux dev build always uses the desktop-style ICD entry point
+# (dlopen + vk_icdGetInstanceProcAddr), even when with_platform_android is
+# enabled for AHB/gralloc support. The real Android HAL symbol scheme
+# (vulkan-android.sym, exporting only HMI) is for running as an actual
+# system HAL inside Android, not for local dlopen-based testing.
+vulkan_icd_symbols = files('vulkan-icd-symbols.txt')
+if with_ld_version_script
+  vulkan_icd_link_args += ['-Wl,--version-script', join_paths(meson.current_source_dir(), 'vulkan.sym')]
+  vulkan_icd_link_depends += files('vulkan.sym')
 endif
 
 inc_vulkan_util = include_directories('util')
