@@ -1,0 +1,170 @@
+From 3d99d0538ac90777b978285625eaa9697ddea223 Mon Sep 17 00:00:00 2001
+From: Luke <marechal.coments87@gmail.com>
+Date: Sat, 12 Sep 2026 23:36:45 -0300
+Subject: [PATCH] Enable Android WSI/AHB-gralloc build and fix real-hardware
+ import path
+
+Root-caused and fixed four separate issues blocking Android platform
+support, found while getting AHardwareBuffer import working against a
+real Mali-G52 device (no root, no vendor gralloc HAL service reachable
+from Termux):
+
+1. src/vulkan/meson.build: with_platform_android unconditionally
+   selects the Android HAL symbol scheme (vulkan-android.sym, exporting
+   only HMI per hwvulkan_module_t), hiding vk_icdGetInstanceProcAddr
+   entirely. That's correct for running as a real system HAL, but breaks
+   every dlopen()-based desktop-style loader test. For now this always
+   uses the generic vulkan.sym scheme; needs revisiting before packaging
+   this driver to actually run as an in-process Android HAL.
+
+2. include/vulkan/vk_android_native_buffer.h: a stale one-line patch
+   from an earlier phase (Termux toolchain lacked AOSP cutils/
+   native_handle.h at the time) forced buffer_handle_t to a generic
+   void* even when __ANDROID__ is defined. Termux's ndk-sysroot package
+   now provides the real header, and the two definitions conflicted
+   (typedef redefinition error). Removed the stale override so the real
+   native_handle_t path is used.
+
+3. src/android_stub/hardware_stub.cpp: hw_get_module() unconditionally
+   returned 0 (success) without ever writing to *module. Real callers
+   (e.g. u_gralloc_cros_api_create) correctly assume success means
+   *module is valid and dereference it immediately - crashing on
+   uninitialized/NULL memory. No real Android HAL module registry is
+   reachable here, so there's nothing to return; now reports failure
+   honestly, letting existing (and already-correct) gralloc fallback
+   logic take over instead of silently lying about success.
+
+4. src/vulkan/runtime/vk_android.c: vk_common_GetAndroidHardwareBufferPropertiesANDROID
+   assumed the dma-buf fd is always at native_handle_t->data[0]. On this
+   device, going through u_gralloc's fallback implementation (no real
+   vendor gralloc HAL registered), the real dma-buf turned out to be at
+   data[1] instead - data[0] is a metadata/ashmem fd that fails lseek()
+   with EINVAL. Now probes each fd via lseek(SEEK_END) and uses the
+   first one that reports a valid size, instead of assuming a fixed
+   index. This is a real-hardware finding: gralloc fd ordering is not
+   guaranteed to put the dma-buf first when going through a non-vendor
+   gralloc path.
+
+Confirmed: AHardwareBuffer_allocate() against the real system
+libnativewindow.so + vkGetAndroidHardwareBufferPropertiesANDROID()
+against our driver now returns correct real values (allocationSize
+matching the actual buffer size, valid memoryTypeBits/format). No
+regression: existing X11 WSI swapchain test (Phase 8) still completes
+3/3 frames cleanly after these changes.
+
+Not yet done: panvk_android_import_ahb_memory() in panvk_android.c
+still assumes data[0] for the actual vkAllocateMemory import path -
+same class of bug, needs the same fix applied there next.
+---
+ include/vulkan/vk_android_native_buffer.h |  2 +-
+ src/android_stub/hardware_stub.cpp        |  9 ++++++++-
+ src/vulkan/meson.build                    | 21 +++++++++------------
+ src/vulkan/runtime/vk_android.c           | 22 ++++++++++++++++++++--
+ 4 files changed, 38 insertions(+), 16 deletions(-)
+
+diff --git a/include/vulkan/vk_android_native_buffer.h b/include/vulkan/vk_android_native_buffer.h
+index 9e2654e..ad3b092 100644
+--- a/include/vulkan/vk_android_native_buffer.h
++++ b/include/vulkan/vk_android_native_buffer.h
+@@ -17,7 +17,7 @@
+  * system rather the build target.
+  */
+ 
+-#if (defined(__ANDROID__) || defined(ANDROID)) && 0 /* PATCH: Termux toolchain lacks AOSP cutils/native_handle.h; use portable buffer_handle_t */
++#if (defined(__ANDROID__) || defined(ANDROID)) /* Termux ndk-sysroot now provides real cutils/native_handle.h */
+ 
+ #include <cutils/native_handle.h>
+ #if ANDROID_API_LEVEL < 28
+diff --git a/src/android_stub/hardware_stub.cpp b/src/android_stub/hardware_stub.cpp
+index 4cb973f..f64736c 100644
+--- a/src/android_stub/hardware_stub.cpp
++++ b/src/android_stub/hardware_stub.cpp
+@@ -4,7 +4,14 @@ extern "C" {
+ 
+ int hw_get_module(const char *id, const struct hw_module_t **module)
+ {
+-   return 0;
++   /* PATCH: honest stub - no real Android HAL module registry is present
++    * under Termux, so there is nothing to return. Returning 0 (success)
++    * without setting *module previously left callers dereferencing an
++    * uninitialized/NULL pointer, since real hw_get_module() guarantees
++    * *module is valid on success. Report failure instead so callers take
++    * their existing (and already-correct) fallback path. */
++   *module = 0;
++   return -1;
+ }
+ 
+ }
+diff --git a/src/vulkan/meson.build b/src/vulkan/meson.build
+index 99a0bc7..9f67c9a 100644
+--- a/src/vulkan/meson.build
++++ b/src/vulkan/meson.build
+@@ -6,18 +6,15 @@ vk_api_xml = files('registry/vk.xml')
+ vulkan_icd_link_args = []
+ vulkan_icd_link_depends = []
+ 
+-if with_platform_android
+-  vulkan_icd_symbols = files('vulkan-icd-android-symbols.txt')
+-  if with_ld_version_script
+-    vulkan_icd_link_args += ['-Wl,--version-script', join_paths(meson.current_source_dir(), 'vulkan-android.sym')]
+-    vulkan_icd_link_depends += files('vulkan-android.sym')
+-  endif
+-else
+-  vulkan_icd_symbols = files('vulkan-icd-symbols.txt')
+-  if with_ld_version_script
+-    vulkan_icd_link_args += ['-Wl,--version-script', join_paths(meson.current_source_dir(), 'vulkan.sym')]
+-    vulkan_icd_link_depends += files('vulkan.sym')
+-  endif
++# PATCH: Termux dev build always uses the desktop-style ICD entry point
++# (dlopen + vk_icdGetInstanceProcAddr), even when with_platform_android is
++# enabled for AHB/gralloc support. The real Android HAL symbol scheme
++# (vulkan-android.sym, exporting only HMI) is for running as an actual
++# system HAL inside Android, not for local dlopen-based testing.
++vulkan_icd_symbols = files('vulkan-icd-symbols.txt')
++if with_ld_version_script
++  vulkan_icd_link_args += ['-Wl,--version-script', join_paths(meson.current_source_dir(), 'vulkan.sym')]
++  vulkan_icd_link_depends += files('vulkan.sym')
+ endif
+ 
+ inc_vulkan_util = include_directories('util')
+diff --git a/src/vulkan/runtime/vk_android.c b/src/vulkan/runtime/vk_android.c
+index fd9ee5d..f72118e 100644
+--- a/src/vulkan/runtime/vk_android.c
++++ b/src/vulkan/runtime/vk_android.c
+@@ -1088,13 +1088,31 @@ vk_common_GetAndroidHardwareBufferPropertiesANDROID(
+ 
+    const native_handle_t *handle = AHardwareBuffer_getNativeHandle(buffer);
+    assert(handle && handle->numFds > 0);
+-   pProperties->allocationSize = lseek(handle->data[0], 0, SEEK_END);
++   /* PATCH: some gralloc implementations (observed with u_gralloc fallback
++    * on MediaTek/Mali devices without a real vendor gralloc HAL) do not
++    * place the dma-buf fd at data[0] - that slot may hold a metadata/ashmem
++    * fd instead, with the real dma-buf at a later index. Probe each fd via
++    * lseek(SEEK_END), which only succeeds on a real dma-buf, instead of
++    * assuming a fixed index. */
++   int dma_buf_fd = handle->data[0];
++   off_t dma_buf_size = lseek(dma_buf_fd, 0, SEEK_END);
++   if (dma_buf_size <= 0) {
++      for (int _i = 1; _i < handle->numFds; _i++) {
++         off_t _sz = lseek(handle->data[_i], 0, SEEK_END);
++         if (_sz > 0) {
++            dma_buf_fd = handle->data[_i];
++            dma_buf_size = _sz;
++            break;
++         }
++      }
++   }
++   pProperties->allocationSize = dma_buf_size;
+ 
+    VkMemoryFdPropertiesKHR fd_props = {
+       .sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR,
+    };
+    result = device->dispatch_table.GetMemoryFdPropertiesKHR(
+-      device_h, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, handle->data[0],
++      device_h, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, dma_buf_fd,
+       &fd_props);
+    if (result != VK_SUCCESS)
+       return result;
+-- 
+2.54.0
+

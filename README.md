@@ -290,3 +290,68 @@ on-screen frame rendered through this driver stack.
 
 Not X11-specific — affects any real submission with output semaphores
 on this backend, so should unblock Winlator once packaging starts.
+
+### Phase 9 — Android WSI/AHB-gralloc build enabled, real hardware import working
+
+Picked up the blocker noted at the end of Phase 8's handoff: rebuilding
+with -Dplatforms=x11,android -Dandroid-stub=true failed with a Meson
+error (glapi_xml_py_deps undefined in src/egl/meson.build). Root cause:
+src/mesa/glapi/meson.build only runs (defining that variable) when
+with_gallium is true, but src/meson.build calls subdir('egl')
+unconditionally once EGL is enabled - a real upstream Meson bug for the
+uncommon "EGL without any Gallium driver" combination. Worked around by
+explicitly passing -Degl=disabled, since this driver only needs Vulkan.
+
+With that resolved, panvk_android.c (392 lines, already present in the
+tree with real AHardwareBuffer/gralloc import code - not a stub) compiles
+successfully using headers from Termux's ndk-sysroot package
+(android/hardware_buffer.h, android/native_window.h - no full NDK
+download needed).
+
+Getting a real AHardwareBuffer imported into the driver (allocated via
+the real system libnativewindow.so, confirmed reachable and callable
+from Termux without root) surfaced four separate, unrelated bugs:
+
+1. with_platform_android forces the Android HAL symbol scheme
+   (vulkan-android.sym, exporting only HMI per hwvulkan_module_t),
+   hiding vk_icdGetInstanceProcAddr - correct for running as a real
+   system HAL, but breaks dlopen()-based test harnesses. Patched to
+   always use the generic vulkan.sym for now; needs revisiting before
+   packaging this driver to run as an actual in-process Android HAL.
+
+2. A stale one-line patch from Phase 1 (back when Termux lacked AOSP
+   cutils/native_handle.h) forced buffer_handle_t to a generic void*.
+   ndk-sysroot now provides the real header, so the two definitions
+   conflicted (typedef redefinition error). Removed the stale override.
+
+3. The android_stub's hw_get_module() unconditionally returned success
+   without writing to *module. Real callers (e.g. Mesa's CrOS gralloc
+   backend) correctly trust success and dereference *module immediately -
+   crashing on uninitialized memory. Fixed to report failure honestly,
+   letting the existing (correct) gralloc fallback chain take over.
+
+4. vk_common_GetAndroidHardwareBufferPropertiesANDROID (Mesa's generic
+   Android runtime code) assumed the dma-buf fd is always at
+   native_handle_t->data[0]. On this device, going through u_gralloc's
+   fallback implementation (no real vendor gralloc HAL registered from
+   Termux), the actual dma-buf turned out to be at data[1] - data[0] is
+   a metadata/ashmem fd that fails lseek() with EINVAL. Patched to probe
+   each fd via lseek(SEEK_END) and use the first one reporting a valid
+   size, instead of assuming a fixed index. This is a real-hardware
+   finding, not a Termux quirk: gralloc fd ordering isn't guaranteed to
+   put the dma-buf first when going through a non-vendor gralloc path.
+
+Patch: panvk-driver-patch/android_wsi_ahb_fixes.patch
+
+Result: AHardwareBuffer_allocate() against the real system
+libnativewindow.so + vkGetAndroidHardwareBufferPropertiesANDROID()
+against our driver now returns correct values (allocationSize matching
+the real buffer size, valid memoryTypeBits/format/externalFormat). No
+regression - the Phase 8 X11 WSI swapchain test still completes 3/3
+frames cleanly after these changes.
+
+Not yet done: panvk_android_import_ahb_memory() in panvk_android.c still
+assumes data[0] for the actual vkAllocateMemory import path - same class
+of bug, same fix needed there next, followed by a full AHB-backed
+VkImage/VkDeviceMemory import test and eventually a real ANativeWindow
+swapchain.
