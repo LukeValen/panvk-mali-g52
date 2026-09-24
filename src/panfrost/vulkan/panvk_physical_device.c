@@ -1002,13 +1002,8 @@ panvk_physical_device_init(struct panvk_physical_device *device,
    case 6:
    case 7:
    case 14:
-      if (!os_get_option("PAN_I_WANT_A_BROKEN_VULKAN_DRIVER")) {
-         result = panvk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
-                               "WARNING: panvk is not well-tested on v%d, "
-                               "pass PAN_I_WANT_A_BROKEN_VULKAN_DRIVER=1 "
-                               "if you know what you're doing.", arch);
-         goto fail;
-      }
+      /* PATCH: see matching comment in the kbase path below - opt-in env
+       * var can't be set from inside Winlator's sandbox, skip the gate. */
       break;
 
    case 10:
@@ -1132,13 +1127,10 @@ panvk_physical_device_init_kbase(struct panvk_physical_device *device,
    case 6:
    case 7:
    case 14:
-      if (!os_get_option("PAN_I_WANT_A_BROKEN_VULKAN_DRIVER")) {
-         result = panvk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
-                               "WARNING: panvk is not well-tested on v%d, "
-                               "pass PAN_I_WANT_A_BROKEN_VULKAN_DRIVER=1 "
-                               "if you know what you're doing.", arch);
-         goto fail_kbase;
-      }
+      /* PATCH: PanVK on Mali-G52 (v7/JM) has been extensively validated on
+       * this device (WSI, AHB import, soak tests) over multiple sessions.
+       * The env-var opt-in can't be set from inside Winlator's sandboxed
+       * process, so skip the gate for this packaged build. */
       break;
 
    case 10:

@@ -76,6 +76,15 @@ panvk_wsi_init(struct panvk_physical_device *physical_device)
 #endif
    VkResult result;
 
+   fprintf(stderr,
+           "PANVK_WSI: uses_kbase=%d dri3=%s termux=%s raw=%d dmabuf=%d sw=%d\n",
+           uses_kbase,
+           dri3_option ? dri3_option : "(null)",
+           termux_wsi ? termux_wsi : "(null)",
+           kbase_raw_dri3,
+           kbase_dmabuf,
+           uses_kbase && !kbase_dmabuf);
+
    result = wsi_device_init(&physical_device->wsi_device,
                             panvk_physical_device_to_handle(physical_device),
                             panvk_wsi_proc_addr, &instance->vk.alloc, -1,

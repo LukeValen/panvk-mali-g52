@@ -182,7 +182,7 @@ foreach arch : [6, 7, 10, 12, 13, 14]
       idep_vulkan_runtime_headers,
       idep_vulkan_wsi_headers,
       idep_mesautil,
-      dep_libdrm,
+      dep_libdrm.partial_dependency(compile_args : true, includes : true),
       dep_valgrind,
       idep_libpan_per_arch[arch.to_string()],
     ],
@@ -204,6 +204,13 @@ if with_platform_android
   libpanvk_files += files('panvk_android.c')
 endif
 
+# PATCH: avoid dynamic dependency on libdrm.so, whose vendor/system copies
+# on this device conflict with the version needed at link time (missing
+# drmSyncobj*/drmCloseBufferHandle symbols in the restricted vendor
+# namespace this driver loads in). Real DRM is never exercised on this
+# kbase-only device anyway.
+libpanvk_files += files('panvk_drm_shim.c')
+
 libvulkan_panfrost = shared_library(
   'vulkan_panfrost',
   [libpanvk_files, panvk_entrypoints, panvk_tracepoints, panvk_drirc],
@@ -223,7 +230,7 @@ libvulkan_panfrost = shared_library(
   dependencies : [
     dep_dl,
     dep_elf,
-    dep_libdrm,
+    dep_libdrm.partial_dependency(compile_args : true, includes : true),
     dep_m,
     dep_thread,
     dep_valgrind,

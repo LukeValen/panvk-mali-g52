@@ -257,7 +257,24 @@ panvk_android_import_ahb_memory(VkDevice device,
    VK_FROM_HANDLE(vk_device, dev, device);
    const native_handle_t *handle = AHardwareBuffer_getNativeHandle(ahb);
    assert(handle && handle->numFds > 0);
+   /* PATCH: some gralloc implementations (observed with u_gralloc fallback
+    * on MediaTek/Mali devices without a real vendor gralloc HAL) do not
+    * place the dma-buf fd at data[0] - probe each fd via lseek(SEEK_END),
+    * which only succeeds on a real dma-buf, instead of assuming a fixed
+    * index. Same fix as vk_common_GetAndroidHardwareBufferPropertiesANDROID. */
    int dma_buf_fd = handle->data[0];
+   {
+      off_t _sz = lseek(dma_buf_fd, 0, SEEK_END);
+      if (_sz <= 0) {
+         for (int _i = 1; _i < handle->numFds; _i++) {
+            _sz = lseek(handle->data[_i], 0, SEEK_END);
+            if (_sz > 0) {
+               dma_buf_fd = handle->data[_i];
+               break;
+            }
+         }
+      }
+   }
    VkResult result;
 
    VkImage img_handle = VK_NULL_HANDLE;

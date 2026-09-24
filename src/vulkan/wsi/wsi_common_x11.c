@@ -3274,6 +3274,9 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
    result = wsi_swapchain_init(wsi_device, &chain->base, device, pCreateInfo,
                                image_params, pAllocator);
 
+   fprintf(stderr, "PANVK_X11: wsi_swapchain_init result=%d sw=%d mit_shm=%d\n",
+           result, wsi_device->sw, wsi_conn->has_mit_shm);
+
    for (int i = 0; i < ARRAY_SIZE(modifiers); i++)
       vk_free(pAllocator, modifiers[i]);
 

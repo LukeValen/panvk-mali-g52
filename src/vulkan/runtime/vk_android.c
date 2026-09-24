@@ -197,7 +197,22 @@ vk_android_import_anb_memory(struct vk_device *device,
 {
    assert(anb && anb->handle && anb->handle->numFds > 0);
 
+   /* PATCH: same fd-ordering issue as vk_common_GetAndroidHardwareBufferPropertiesANDROID
+    * and panvk_android_import_ahb_memory - probe each fd via lseek(SEEK_END)
+    * instead of assuming data[0] is always the dma-buf. */
    int dma_buf_fd = anb->handle->data[0];
+   {
+      off_t _sz = lseek(dma_buf_fd, 0, SEEK_END);
+      if (_sz <= 0) {
+         for (int _i = 1; _i < anb->handle->numFds; _i++) {
+            _sz = lseek(anb->handle->data[_i], 0, SEEK_END);
+            if (_sz > 0) {
+               dma_buf_fd = anb->handle->data[_i];
+               break;
+            }
+         }
+      }
+   }
 
    /* Query image memory requirements for size and supported memory types */
    VkMemoryRequirements mem_reqs;
