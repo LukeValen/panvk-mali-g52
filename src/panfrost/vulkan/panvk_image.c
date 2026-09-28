@@ -320,6 +320,10 @@ panvk_image_get_explicit_mod(
 {
    uint64_t mod = explicit->drmFormatModifier;
 
+   if (mod == DRM_FORMAT_MOD_INVALID) {
+      mod = DRM_FORMAT_MOD_LINEAR;
+   }
+
    assert(!vk_format_is_depth_or_stencil(image->vk.format));
    assert(image->vk.samples == 1);
    assert(image->vk.array_layers == 1);
