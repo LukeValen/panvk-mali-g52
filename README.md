@@ -4,6 +4,23 @@ Experimental Mesa PanVK work for running Vulkan on a **Mali-G52 MC2 (Bifrost / J
 
 The project currently targets the **Xiaomi Redmi 13C (MT6769V/CZ / mt6768)** and is developed directly on Android with Termux.
 
+## Latest release
+
+### PanVK G52 v0.0.1-alpha
+
+The first public alpha release is available here:
+
+https://github.com/LukeValen/panvk-mali-g52/releases/tag/v0.0.1-alpha
+
+Release asset:
+
+```text
+panvk-g52-v0.0.1-alpha.zip
+SHA-256: cc7edb35813b3bd6f8a9b540252e757398aba61931a8a4da9fac5b7658ac33e0
+```
+
+This release is intended for early testing on Mali-G52 MC2 and should be considered experimental.
+
 ## Current status
 
 **Vulkan rendering is working through PanVK on the target device.**
@@ -19,6 +36,9 @@ Validated paths:
 - Native X11 WSI and swapchain presentation
 - Android AHardwareBuffer import path
 - **Winlator/Ludashi WSI path with VKCube rendering on-screen**
+- **DXVK Direct3D 9 basic rendering**
+- **DXVK Direct3D 10 basic rendering**
+- **DXVK Direct3D 11 basic rendering**
 
 ### VKCube running in Winlator/Ludashi
 
@@ -26,7 +46,7 @@ Validated paths:
 
 The current test reaches swapchain creation, image acquisition, rendering and presentation successfully inside Wine/Winlator.
 
-> This does **not** yet mean general game compatibility is complete. DXVK, game-specific Vulkan feature requirements and long-running synchronization still need broader testing.
+> This does **not** yet mean general game compatibility is complete. Basic DXVK D3D9, D3D10 and D3D11 rendering has now been validated, but real games, more complex Vulkan features and long-running synchronization still require broader testing.
 
 ## Target hardware
 
@@ -109,13 +129,50 @@ Native X11 WSI has been validated with swapchain presentation and VKCube.
 
 VKCUBE now runs through the Android/Winlator stack using the custom PanVK driver package.
 
+### DXVK
+
+Basic DXVK rendering has been validated through Winlator/Ludashi for:
+
+- Direct3D 9
+- Direct3D 10
+- Direct3D 11
+
+These tests confirm that the driver can progress through WineVulkan/DXVK device creation and render basic graphics workloads on the Mali-G52 MC2.
+
+They do **not** yet prove full Direct3D feature-level compliance or broad game compatibility.
+
+## Experimental DXVK capability advertisement
+
+The current `v0.0.1-alpha` temporarily force-advertises several Vulkan capabilities in order to investigate and pass DXVK feature gating.
+
+This includes capabilities such as:
+
+- Geometry shaders
+- Tessellation shaders
+- Multi-draw indirect
+- Multi-viewport
+- BC texture compression
+- Shader clip distance
+- Shader cull distance
+- Transform feedback
+- Geometry streams
+
+Some of these capabilities are **not yet fully implemented for the Mali-G52 Bifrost/JM path**.
+
+Their presence in `vkGetPhysicalDeviceFeatures` must therefore not be interpreted as complete hardware/driver support.
+
+Applications that actually exercise one of these unfinished paths may crash, fail to render or produce incorrect output.
+
+Future releases should replace these temporary compatibility advertisements with either real implementations or more precise compatibility handling.
+
 ## Current limitations
 
 The driver is still experimental.
 
 Not yet considered fully validated:
 
-- Broad DXVK compatibility
+- Broad game compatibility through DXVK
+- Full validation of the currently force-advertised Vulkan capabilities
 - Large Windows games
 - Long-running asynchronous workloads
 - Performance tuning
