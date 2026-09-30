@@ -4,6 +4,9 @@
 		# as HAL_MODULE_INFO_SYM (which is just a #define for HMI) and it's an
 		# instance of struct hwvulkan_module_t.
 		HMI;
+                vk_icdGetInstanceProcAddr;
+                vk_icdGetPhysicalDeviceProcAddr;
+                vk_icdNegotiateLoaderICDInterfaceVersion;
 
 	local:
 		# When static linking LLVM, all its symbols are public API.

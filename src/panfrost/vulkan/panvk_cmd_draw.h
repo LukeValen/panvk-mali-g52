@@ -137,6 +137,7 @@ struct panvk_rendering_state {
 enum panvk_cmd_graphics_dirty_state {
    PANVK_CMD_GRAPHICS_DIRTY_BASE_INSTANCE,
    PANVK_CMD_GRAPHICS_DIRTY_VS,
+   PANVK_CMD_GRAPHICS_DIRTY_GS,
    PANVK_CMD_GRAPHICS_DIRTY_FS,
    PANVK_CMD_GRAPHICS_DIRTY_VB,
    PANVK_CMD_GRAPHICS_DIRTY_OQ,
@@ -229,6 +230,23 @@ struct panvk_cmd_graphics_state {
       enum mesa_prim prim;
       bool active;
    } tess;
+
+   /*
+    * Geometry shaders are split by libpoly into physical programs.
+    * Descriptor state and push uniforms belong to each physical variant.
+    */
+   struct {
+      const struct panvk_shader *shader;
+
+      /* API VS physically executed as compute before GS MAIN. */
+      struct panvk_shader_desc_state sw_vs_desc;
+      uint64_t sw_vs_push_uniforms;
+
+      struct {
+         struct panvk_shader_desc_state desc;
+         uint64_t push_uniforms;
+      } variants[PANVK_GS_VARIANTS];
+   } gs;
 
    struct {
       struct panvk_attrib_buf bufs[MAX_VBS];
