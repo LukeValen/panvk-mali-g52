@@ -8,7 +8,7 @@ The project currently targets the **Xiaomi Redmi 13C (MT6769V/CZ / mt6768)** and
 >
 > If you'd like to support the project and help fund continued development, testing, and device compatibility work:
 >
-> **PayPal:** `lucas87937@gmail.com`
+> **PayPal:** `marechal.coments87@gmail.com`
 
 ## Latest release
 
