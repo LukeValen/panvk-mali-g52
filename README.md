@@ -4,6 +4,12 @@ Experimental Mesa PanVK work for running Vulkan on a **Mali-G52 MC2 (Bifrost / J
 
 The project currently targets the **Xiaomi Redmi 13C (MT6769V/CZ / mt6768)** and is developed directly on Android with Termux.
 
+> 💙 **Support PanVk V7 development**
+>
+> If you'd like to support the project and help fund continued development, testing, and device compatibility work:
+>
+> **PayPal:** `lucas87937@gmail.com`
+
 ## Latest release
 
 ### PanVK G52 v0.0.1-alpha
